@@ -35,3 +35,6 @@ docker system prune -a
 
 # Project inspired by
 https://github.com/tensorflow/tfjs-examples/tree/master/react-native/pose-detection
+
+# TODO
+- draws a rectangle when it detects something

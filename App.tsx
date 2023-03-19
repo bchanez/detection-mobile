@@ -1,18 +1,16 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { StyleSheet, Text, View, Dimensions, Platform } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Dimensions, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { Camera } from 'expo-camera';
 
 import * as tf from '@tensorflow/tfjs';
-import * as posedetection from '@tensorflow-models/pose-detection';
-import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   bundleResourceIO,
-  cameraWithTensors,
+  cameraWithTensors
 } from '@tensorflow/tfjs-react-native';
-import Svg, { Circle } from 'react-native-svg';
-import { ExpoWebGLRenderingContext } from 'expo-gl';
 import { CameraType } from 'expo-camera/build/Camera.types';
+import { ExpoWebGLRenderingContext } from 'expo-gl';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 // tslint:disable-next-line: variable-name
 const TensorCamera = cameraWithTensors(Camera);
@@ -38,26 +36,26 @@ const MIN_KEYPOINT_SCORE = 0.3;
 // For movenet, the size here doesn't matter too much because the model will
 // preprocess the input (crop, resize, etc). For best result, use the size that
 // doesn't distort the image.
-const OUTPUT_TENSOR_WIDTH = 180;
-const OUTPUT_TENSOR_HEIGHT = OUTPUT_TENSOR_WIDTH / (IS_IOS ? 9 / 16 : 3 / 4);
+const OUTPUT_TENSOR_WIDTH = 224;
+const OUTPUT_TENSOR_HEIGHT = 224;
+// const OUTPUT_TENSOR_HEIGHT = OUTPUT_TENSOR_WIDTH / (IS_IOS ? 9 / 16 : 3 / 4);
 
 // Whether to auto-render TensorCamera preview.
 const AUTO_RENDER = false;
 
-// Whether to load model from app bundle (true) or through network (false).
-const LOAD_MODEL_FROM_BUNDLE = false;
 
 export default function App() {
   const cameraRef = useRef(null);
-  const [tfReady, setTfReady] = useState(false);
-  const [model, setModel] = useState<posedetection.PoseDetector>();
-  const [poses, setPoses] = useState<posedetection.Pose[]>();
+  const [tfReady, setTfReady] = useState(false); // gets and sets the Tensorflow.js module loading status
+  const [model, setModel] = useState<tf.LayersModel>(); // gets and sets the locally saved Tensorflow.js model
+  const [predictions, setPredictions] = useState<tf.Tensor<tf.Rank> | tf.Tensor<tf.Rank>[]>(); // gets and sets the predicted value from the model
   const [fps, setFps] = useState(0);
   const [orientation, setOrientation] =
     useState<ScreenOrientation.Orientation>();
   const [cameraType, setCameraType] = useState<CameraType>(
-    Camera.Constants.Type.front
+    Camera.Constants.Type.back
   );
+
   // Use `useRef` so that changing it won't trigger a re-render.
   //
   // - null: unset (initial value).
@@ -79,33 +77,17 @@ export default function App() {
       });
 
       // Camera permission.
+      console.log("[+] Permission Camera");
       await Camera.requestCameraPermissionsAsync();
 
       // Wait for tfjs to initialize the backend.
+      console.log("[+] Application started");
       await tf.ready();
 
-      // Load movenet model.
-      // https://github.com/tensorflow/tfjs-models/tree/master/pose-detection
-      const movenetModelConfig: posedetection.MoveNetModelConfig = {
-        modelType: posedetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
-        enableSmoothing: true,
-      };
-      if (LOAD_MODEL_FROM_BUNDLE) {
-        const modelJson = require('./offline_model/model.json');
-        const modelWeights1 = require('./offline_model/group1-shard1of2.bin');
-        const modelWeights2 = require('./offline_model/group1-shard2of2.bin');
-        movenetModelConfig.modelUrl = bundleResourceIO(modelJson, [
-          modelWeights1,
-          modelWeights2,
-        ]);
-      }
-      const model = await posedetection.createDetector(
-        posedetection.SupportedModels.MoveNet,
-        movenetModelConfig
-      );
-      setModel(model);
+      setModel(await loadModel());
 
       // Ready!
+      console.log("[+] tf ready");
       setTfReady(true);
     }
 
@@ -122,71 +104,65 @@ export default function App() {
     };
   }, []);
 
+  const loadModel = async () => {
+    // bundle the model files and load the model:
+    console.log("[+] Loading pre-trained model");
+    const modelJson = require('./assets/model/model.json');
+    const modelWeights1 = require('./assets/model/weights.bin');
+    const loadedModel = await tf.loadLayersModel(
+      bundleResourceIO(modelJson, [
+        modelWeights1
+      ])
+    );
+    console.log("[+] Model loaded");
+    return loadedModel;
+  };
+
+  const startPrediction = async (model, tensor) => {
+    try {
+      const prediction = await model.predict(tensor);
+      return prediction.dataSync();
+    } catch (e) {
+      console.log('[ERROR] Predicting from tensor image', e);
+    }
+  };
+
   const handleCameraStream = async (
     images: IterableIterator<tf.Tensor3D>,
     updatePreview: () => void,
     gl: ExpoWebGLRenderingContext
   ) => {
     const loop = async () => {
-      // Get the tensor and run pose detection.
-      const imageTensor = images.next().value as tf.Tensor3D;
+        // Get the tensor and run pose detection.
+        const imageTensor = images.next().value as tf.Tensor3D;
 
-      const startTs = Date.now();
-      const poses = await model!.estimatePoses(
-        imageTensor,
-        undefined,
-        Date.now()
-      );
-      const latency = Date.now() - startTs;
-      setFps(Math.floor(1000 / latency));
-      setPoses(poses);
-      tf.dispose([imageTensor]);
+        const startTs = Date.now();
+        const expandedImageTensor = tf.expandDims(imageTensor, 0);
+        setPredictions(await startPrediction(model, expandedImageTensor));
+        setFps(Math.floor(1000 / (Date.now() - startTs)));
 
-      if (rafId.current === 0) {
-        return;
-      }
+        tf.dispose([imageTensor]);
 
-      // Render camera preview manually when autorender=false.
-      if (!AUTO_RENDER) {
-        updatePreview();
-        gl.endFrameEXP();
-      }
+        if (rafId.current === 0) {
+          return;
+        }
 
-      rafId.current = requestAnimationFrame(loop);
+        // Render camera preview manually when autorender=false.
+        if (!AUTO_RENDER) {
+          updatePreview();
+          gl.endFrameEXP();
+        }
+
+        rafId.current = requestAnimationFrame(loop);
     };
 
     loop();
   };
 
-  const renderPose = () => {
-    if (poses != null && poses.length > 0) {
-      const keypoints = poses[0].keypoints
-        .filter((k) => (k.score ?? 0) > MIN_KEYPOINT_SCORE)
-        .map((k) => {
-          // Flip horizontally on android or when using back camera on iOS.
-          const flipX = IS_ANDROID || cameraType === Camera.Constants.Type.back;
-          const x = flipX ? getOutputTensorWidth() - k.x : k.x;
-          const y = k.y;
-          const cx =
-            (x / getOutputTensorWidth()) *
-            (isPortrait() ? CAM_PREVIEW_WIDTH : CAM_PREVIEW_HEIGHT);
-          const cy =
-            (y / getOutputTensorHeight()) *
-            (isPortrait() ? CAM_PREVIEW_HEIGHT : CAM_PREVIEW_WIDTH);
-          return (
-            <Circle
-              key={`skeletonkp_${k.name}`}
-              cx={cx}
-              cy={cy}
-              r='4'
-              strokeWidth='2'
-              fill='#00AA00'
-              stroke='white'
-            />
-          );
-        });
-
-      return <Svg style={styles.svg}>{keypoints}</Svg>;
+  const renderPredictions = () => {
+    if (predictions) {
+      console.log('predictions: ' + predictions);
+      return <View></View>;
     } else {
       return <View></View>;
     }
@@ -246,29 +222,6 @@ export default function App() {
       : OUTPUT_TENSOR_WIDTH;
   };
 
-  const getTextureRotationAngleInDegrees = () => {
-    // On Android, the camera texture will rotate behind the scene as the phone
-    // changes orientation, so we don't need to rotate it in TensorCamera.
-    if (IS_ANDROID) {
-      return 0;
-    }
-
-    // For iOS, the camera texture won't rotate automatically. Calculate the
-    // rotation angles here which will be passed to TensorCamera to rotate it
-    // internally.
-    switch (orientation) {
-      // Not supported on iOS as of 11/2021, but add it here just in case.
-      case ScreenOrientation.Orientation.PORTRAIT_DOWN:
-        return 180;
-      case ScreenOrientation.Orientation.LANDSCAPE_LEFT:
-        return cameraType === Camera.Constants.Type.front ? 270 : 90;
-      case ScreenOrientation.Orientation.LANDSCAPE_RIGHT:
-        return cameraType === Camera.Constants.Type.front ? 90 : 270;
-      default:
-        return 0;
-    }
-  };
-
   if (!tfReady) {
     return (
       <View style={styles.loadingMsg}>
@@ -293,10 +246,9 @@ export default function App() {
           resizeWidth={getOutputTensorWidth()}
           resizeHeight={getOutputTensorHeight()}
           resizeDepth={3}
-          rotation={getTextureRotationAngleInDegrees()}
           onReady={handleCameraStream}
         />
-        {renderPose()}
+        {renderPredictions()}
         {renderFps()}
         {renderCameraTypeSwitcher()}
       </View>
