@@ -1,0 +1,29 @@
+version: '3.9'
+
+services:
+  detection-mobile :
+    container_name: detection-mobile
+    build:
+      context: ..
+      dockerfile: docker/dockerfile
+      args:
+        - NODE_ENV=development
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0
+      - REACT_NATIVE_PACKAGER_HOSTNAME=${REACT_NATIVE_PACKAGER_HOSTNAME}
+    tty: true
+    ports:
+      - 19000:19000
+    volumes:
+      - ..:/opt/detection-mobile /app:delegated
+      - ../package.json:/opt/detection-mobile /package.json
+      - ../yarn.lock:/opt/detection-mobile /yarn.lock
+      - notused:/opt/detection-mobile /app/node_modules
+    healthcheck:
+      disable: true
+
+volumes:
+  notused:
