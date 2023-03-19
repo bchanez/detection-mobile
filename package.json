@@ -1,11 +1,9 @@
 {
-  "name": "pose-detection-with-tfjs-react-native-expo",
+  "name": "detection-mobile",
   "main": "index.js",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "license": "Apache-2.0",
   "scripts": {
-    "build-dep": "cd ../../../tfjs/tfjs-react-native && yarn build-npm",
-    "copy-dep": "rm -rf node_modules/@tensorflow/tfjs-react-native/dist/* && cp -rf ../../../tfjs/tfjs-react-native/dist/* node_modules/@tensorflow/tfjs-react-native/dist/",
     "start": "expo start"
   },
   "dependencies": {
@@ -15,14 +13,14 @@
     "@tensorflow/tfjs": "3.18.0",
     "@tensorflow/tfjs-react-native": "0.8.0",
     "expo": "~46.0.2",
-    "expo-camera": "^12.3.0",
+    "expo-camera": "~12.5.0",
     "expo-file-system": "^14.1.0",
     "expo-gl": "^11.4.0",
     "expo-gl-cpp": "^11.4.0",
     "expo-screen-orientation": "~4.3.0",
     "react": "18.0.0",
     "react-dom": "18.0.0",
-    "react-native": "0.69.3",
+    "react-native": "0.69.6",
     "react-native-fs": "2.14.1",
     "react-native-gesture-handler": "~2.5.0",
     "react-native-svg": "12.3.0"
@@ -33,11 +31,7 @@
     "@types/react": "~16.9.35",
     "@types/react-native": "~0.64.3",
     "babel-preset-expo": "~8.3.0",
-    "jest-expo": "~41.0.0",
     "typescript": "~4.0.0"
-  },
-  "jest": {
-    "preset": "react-native"
   },
   "private": true
 }
